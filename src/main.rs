@@ -8,6 +8,9 @@ mod model;
 mod overlay;
 mod player;
 
+use windows::core::w;
+use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
+use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::HiDpi::{
     SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
@@ -25,6 +28,12 @@ fn main() {
     // Physical pixel coordinates on every monitor, regardless of scaling.
     // Must run before any window is created.
     let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+
+    // A second instance would only fail to register the hotkeys.
+    let Some(_instance) = acquire_single_instance() else {
+        app::show_info("Mouse Tracker", "Mouse Tracker is already running.");
+        return;
+    };
 
     let mut app = match App::new() {
         Ok(app) => app,
@@ -44,6 +53,16 @@ fn main() {
     for id in registered {
         hotkeys::unregister(id);
     }
+}
+
+/// Returns the per-session instance mutex, or `None` when another instance
+/// already holds it. The handle is closed by the OS when the process exits.
+fn acquire_single_instance() -> Option<HANDLE> {
+    let mutex = unsafe { CreateMutexW(None, true, w!("Local\\MouseTracker.SingleInstance")) }.ok()?;
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        return None;
+    }
+    Some(mutex)
 }
 
 /// Registers every binding. A combination already taken by another
