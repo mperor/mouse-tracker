@@ -87,6 +87,11 @@ pub fn command_for_id(id: i32) -> Option<Command> {
     usize::try_from(id).ok().and_then(|i| BINDINGS.get(i)).map(|b| b.command)
 }
 
+/// Key combination bound to `command`, for display in menus.
+pub fn keys_for(command: Command) -> Option<&'static str> {
+    BINDINGS.iter().find(|b| b.command == command).map(|b| b.keys)
+}
+
 /// Registers `binding` as a thread hotkey (no window) under `id`.
 pub fn register(id: i32, binding: &Binding) -> Result<()> {
     let modifiers = HOT_KEY_MODIFIERS(binding.modifiers | MOD_NOREPEAT);

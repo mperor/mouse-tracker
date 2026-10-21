@@ -1,4 +1,4 @@
-//! Application state and the handling of hotkey commands.
+//! Application state and the handling of hotkey and tray commands.
 
 use std::ops::ControlFlow;
 use std::path::PathBuf;
@@ -10,30 +10,99 @@ use crate::input;
 use crate::model::{self, Action, Sequence, Step};
 use crate::overlay::Overlay;
 use crate::player::Player;
+use crate::tray::{MenuItem, Tray, TrayEvent};
 
 pub struct App {
     sequence: Sequence,
     player: Player,
     overlay: Overlay,
+    tray: Tray,
     track_on: bool,
     stop_key_registered: bool,
 }
 
 impl App {
     pub fn new() -> windows::core::Result<Self> {
-        Ok(Self {
+        let mut app = Self {
             sequence: Sequence::default(),
             player: Player::default(),
             overlay: Overlay::new()?,
+            tray: Tray::new("Mouse Tracker")?,
             track_on: true,
             stop_key_registered: false,
-        })
+        };
+        app.sync();
+        Ok(app)
     }
 
     /// Periodic update, driven by the main loop's timer.
     pub fn tick(&mut self) {
         self.overlay.update_cursor();
+        self.sync();
+    }
+
+    pub fn on_tray(&mut self, event: TrayEvent) -> ControlFlow<()> {
+        match event {
+            TrayEvent::Recreate => {
+                self.tray.add();
+                ControlFlow::Continue(())
+            }
+            TrayEvent::Click => match self.tray.show_menu(&self.menu()) {
+                Some(command) => self.handle(command),
+                None => ControlFlow::Continue(()),
+            },
+        }
+    }
+
+    fn menu(&self) -> Vec<MenuItem<Command>> {
+        let running = self.player.is_running();
+        let has_steps = !self.sequence.steps().is_empty();
+        let item = |label: &str, command, enabled| MenuItem::Action {
+            label: match hotkeys::keys_for(command) {
+                Some(keys) => format!("{label}\t{keys}"),
+                None => label.to_owned(),
+            },
+            value: command,
+            checked: command == Command::ToggleTrack && self.track_on,
+            enabled,
+        };
+        // "&" marks the access key. While playback moves the cursor the menu
+        // can't be clicked reliably, but S still stops it.
+        vec![
+            MenuItem::Info(self.status()),
+            MenuItem::Separator,
+            item("&Run", Command::Play, has_steps && !running),
+            item("Run in &loop", Command::PlayLoop, has_steps && !running),
+            item("&Stop", Command::Stop, running),
+            MenuItem::Separator,
+            item("Show &track", Command::ToggleTrack, true),
+            item("&Cancel last", Command::Undo, has_steps),
+            item("Cl&ear all", Command::Clear, has_steps),
+            MenuItem::Separator,
+            item("Sa&ve...", Command::Save, has_steps),
+            item("L&oad...", Command::Load, true),
+            MenuItem::Separator,
+            item("&Help", Command::Help, true),
+            item("E&xit", Command::Quit, true),
+        ]
+    }
+
+    fn status(&self) -> String {
+        if self.player.is_running() {
+            "Playing - press Esc to stop".to_owned()
+        } else {
+            match self.sequence.steps().len() {
+                1 => "1 step recorded".to_owned(),
+                n => format!("{n} steps recorded"),
+            }
+        }
+    }
+
+    /// Brings state derived from playback (stop key, tray tooltip) up to date.
+    fn sync(&mut self) {
         self.sync_stop_key();
+        let tooltip = format!("Mouse Tracker - {}", self.status());
+        self.tray.set_tooltip(&tooltip);
     }
 
     /// Holds the playback stop key (Esc) exactly while playback runs.
@@ -85,7 +154,7 @@ impl App {
                 }
             }
         }
-        self.sync_stop_key();
+        self.sync();
         ControlFlow::Continue(())
     }
 
