@@ -7,6 +7,7 @@ mod input;
 mod model;
 mod overlay;
 mod player;
+mod tray;
 
 use windows::core::w;
 use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
@@ -101,6 +102,14 @@ fn run_message_loop(app: &mut App) {
         // Thread timer (no window): the only WM_TIMER without an hwnd.
         if msg.message == WM_TIMER && msg.hwnd.is_invalid() {
             app.tick();
+            continue;
+        }
+        if msg.message == tray::WM_TRAY && msg.hwnd.is_invalid() {
+            if let Some(event) = tray::event_from(msg.wParam) {
+                if app.on_tray(event).is_break() {
+                    break;
+                }
+            }
             continue;
         }
         unsafe {
